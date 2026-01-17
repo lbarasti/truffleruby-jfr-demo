@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TruffleRuby Metrics Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    h1 { margin: 0 0 20px; color: #333; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .card h2 { margin: 0 0 15px; font-size: 16px; color: #666; }
+    canvas { width: 100% !important; height: 200px !important; }
+    .status { position: fixed; top: 10px; right: 20px; padding: 8px 16px;
+              background: #4caf50; color: white; border-radius: 4px; font-size: 14px; }
+    .status.error { background: #f44336; }
+    .actions { margin-bottom: 20px; }
+    .actions button { padding: 10px 20px; font-size: 14px; cursor: pointer;
+                      background: #e44d26; color: white; border: none; border-radius: 4px; margin-right: 10px; }
+    .actions button:hover { background: #c73d1a; }
+    a { color: #e44d26; }
+  </style>
+</head>
+<body>
+  <div class="status" id="status">Connecting...</div>
+  <h1>TruffleRuby Metrics Dashboard</h1>
+  <p><a href="/">Back to Home</a></p>
+
+  <div class="actions">
+    <button onclick="triggerCompute(10000)">Compute n=10k</button>
+    <button onclick="triggerCompute(50000)">Compute n=50k</button>
+    <button onclick="triggerCompute(100000)">Compute n=100k</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>CPU Usage (%)</h2>
+      <canvas id="cpuChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Memory Usage</h2>
+      <canvas id="memChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Request Latency (ms)</h2>
+      <canvas id="reqChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const chartConfig = (label, color) => ({
+      type: 'line',
+      data: { labels: [], datasets: [{ label, data: [], borderColor: color, tension: 0.3, fill: false }] },
+      options: { responsive: true, animation: false, scales: { y: { beginAtZero: true } } }
+    });
+
+    const cpuChart = new Chart(document.getElementById('cpuChart'), chartConfig('CPU %', '#e44d26'));
+
+    const memChart = new Chart(document.getElementById('memChart'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'System %', data: [], borderColor: '#4caf50', tension: 0.3, fill: false },
+          { label: 'Process MB', data: [], borderColor: '#2196f3', tension: 0.3, fill: false, yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: '%' } },
+          y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'MB' }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+
+    const reqChart = new Chart(document.getElementById('reqChart'), chartConfig('Latency (ms)', '#9c27b0'));
+
+    function updateChart(chart, labels, data, datasetIndex = 0) {
+      chart.data.labels = labels;
+      chart.data.datasets[datasetIndex].data = data;
+      chart.update('none');
+    }
+
+    const evtSource = new EventSource('/events');
+    const statusEl = document.getElementById('status');
+
+    evtSource.onopen = () => {
+      statusEl.textContent = 'Connected';
+      statusEl.classList.remove('error');
+    };
+
+    evtSource.onerror = () => {
+      statusEl.textContent = 'Disconnected';
+      statusEl.classList.add('error');
+    };
+
+    evtSource.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      // CPU chart
+      if (data.cpu && data.cpu.length > 0) {
+        const labels = data.cpu.map(d => d.time);
+        updateChart(cpuChart, labels, data.cpu.map(d => d.percent));
+      }
+
+      // Memory chart
+      if (data.memory && data.memory.length > 0) {
+        const labels = data.memory.map(d => d.time);
+        memChart.data.labels = labels;
+        memChart.data.datasets[0].data = data.memory.map(d => d.system_percent);
+        memChart.data.datasets[1].data = data.memory.map(d => d.process_mb);
+        memChart.update('none');
+      }
+
+      // Request latency chart
+      if (data.requests && data.requests.length > 0) {
+        const labels = data.requests.map(r => r.time);
+        const values = data.requests.map(r => r.duration_ms);
+        updateChart(reqChart, labels, values);
+      }
+    };
+
+    function triggerCompute(n) {
+      fetch('/compute?n=' + n)
+        .then(r => r.json())
+        .then(d => console.log('Computed:', d));
+    }
+  </script>
+</body>
+</html>
