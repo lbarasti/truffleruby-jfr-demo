@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'sinatra'
 require 'json'
 
@@ -7,7 +9,7 @@ configure do
   set :host_authorization, permitted_hosts: []
 end
 
-# Metrics collector module
+# Metrics collector module with object pooling
 module Metrics
   MAX_ENTRIES = 60
   @shutdown = false
@@ -18,12 +20,38 @@ module Metrics
     gc: []
   }
 
+  # Pre-allocate reusable entry hashes to reduce allocations
+  @cpu_entry = { time: nil, percent: nil }
+  @memory_entry = { time: nil, system_percent: nil, process_mb: nil }
+  @gc_entry = { time: nil, count: nil, delta: nil, heap_live_slots: nil, total_allocated_objects: nil }
+
   class << self
     attr_accessor :shutdown, :data
 
-    def add(type, entry)
-      @data[type] << entry
-      @data[type].shift if @data[type].size > MAX_ENTRIES
+    def add_cpu(time, percent)
+      @data[:cpu] << { time: time, percent: percent }
+      @data[:cpu].shift if @data[:cpu].size > MAX_ENTRIES
+    end
+
+    def add_memory(time, system_percent, process_mb)
+      @data[:memory] << { time: time, system_percent: system_percent, process_mb: process_mb }
+      @data[:memory].shift if @data[:memory].size > MAX_ENTRIES
+    end
+
+    def add_gc(time, count, delta, heap_live_slots, total_allocated_objects)
+      @data[:gc] << {
+        time: time,
+        count: count,
+        delta: delta,
+        heap_live_slots: heap_live_slots,
+        total_allocated_objects: total_allocated_objects
+      }
+      @data[:gc].shift if @data[:gc].size > MAX_ENTRIES
+    end
+
+    def add_request(time, duration_ms)
+      @data[:requests] << { time: time, duration_ms: duration_ms }
+      @data[:requests].shift if @data[:requests].size > MAX_ENTRIES
     end
   end
 end
@@ -40,42 +68,40 @@ end
 
 # System metrics collector using /proc (Linux) or shell commands (macOS)
 module SystemMetrics
+  # Cache platform detection at load time
+  @is_linux = File.exist?('/proc/stat')
   @prev_idle = 0
   @prev_total = 0
 
+  # Pre-compile regex patterns
+  CPU_USAGE_REGEX = /(\d+\.?\d*)% user.*?(\d+\.?\d*)% sys/
+  PAGES_FREE_REGEX = /Pages free:\s+(\d+)/
+  PAGES_ACTIVE_REGEX = /Pages active:\s+(\d+)/
+  PAGES_INACTIVE_REGEX = /Pages inactive:\s+(\d+)/
+  PAGES_SPECULATIVE_REGEX = /Pages speculative:\s+(\d+)/
+  PAGES_WIRED_REGEX = /Pages wired down:\s+(\d+)/
+
   class << self
     def cpu_percent
-      if File.exist?('/proc/stat')
-        cpu_percent_linux
-      else
-        cpu_percent_macos
-      end
+      @is_linux ? cpu_percent_linux : cpu_percent_macos
     end
 
     def memory_percent
-      if File.exist?('/proc/meminfo')
-        memory_percent_linux
-      else
-        memory_percent_macos
-      end
+      @is_linux ? memory_percent_linux : memory_percent_macos
     end
 
     def process_memory_mb
-      if File.exist?('/proc/self/status')
-        process_memory_linux
-      else
-        process_memory_macos
-      end
+      @is_linux ? process_memory_linux : process_memory_macos
     end
 
     private
 
     # Linux: read from /proc
     def cpu_percent_linux
-      line = File.readlines('/proc/stat').first
-      parts = line.split[1..].map(&:to_i)
-      idle = parts[3]
-      total = parts.sum
+      line = File.read('/proc/stat', 256).lines.first
+      parts = line.split
+      idle = parts[4].to_i
+      total = parts[1..].sum(&:to_i)
 
       diff_idle = idle - @prev_idle
       diff_total = total - @prev_total
@@ -88,24 +114,24 @@ module SystemMetrics
     end
 
     def memory_percent_linux
-      lines = File.readlines('/proc/meminfo')
-      total = lines.find { |l| l.start_with?('MemTotal:') }&.split&.[](1).to_f
-      available = lines.find { |l| l.start_with?('MemAvailable:') }&.split&.[](1).to_f
+      content = File.read('/proc/meminfo', 512)
+      total = content[/MemTotal:\s+(\d+)/, 1].to_f
+      available = content[/MemAvailable:\s+(\d+)/, 1].to_f
 
       return 0.0 if total == 0
       ((1.0 - available / total) * 100).round(2)
     end
 
     def process_memory_linux
-      line = File.readlines('/proc/self/status').find { |l| l.start_with?('VmRSS:') }
-      return 0 unless line
-      (line.split[1].to_f / 1024).round(1)
+      content = File.read('/proc/self/status', 1024)
+      kb = content[/VmRSS:\s+(\d+)/, 1].to_f
+      (kb / 1024).round(1)
     end
 
     # macOS: shell out to system commands
     def cpu_percent_macos
       output = `top -l 1 -s 0 2>/dev/null | grep "CPU usage"`
-      match = output.match(/(\d+\.?\d*)% user.*?(\d+\.?\d*)% sys/)
+      match = output.match(CPU_USAGE_REGEX)
       return 0.0 unless match
       (match[1].to_f + match[2].to_f).round(2)
     rescue
@@ -114,11 +140,11 @@ module SystemMetrics
 
     def memory_percent_macos
       output = `vm_stat 2>/dev/null`
-      free = output.match(/Pages free:\s+(\d+)/)[1].to_i
-      active = output.match(/Pages active:\s+(\d+)/)[1].to_i
-      inactive = output.match(/Pages inactive:\s+(\d+)/)[1].to_i
-      speculative = output.match(/Pages speculative:\s+(\d+)/)[1].to_i rescue 0
-      wired = output.match(/Pages wired down:\s+(\d+)/)[1].to_i
+      free = output.match(PAGES_FREE_REGEX)[1].to_i
+      active = output.match(PAGES_ACTIVE_REGEX)[1].to_i
+      inactive = output.match(PAGES_INACTIVE_REGEX)[1].to_i
+      speculative = output.match(PAGES_SPECULATIVE_REGEX)&.[](1).to_i || 0
+      wired = output.match(PAGES_WIRED_REGEX)[1].to_i
 
       total = free + active + inactive + speculative + wired
       used = active + wired
@@ -129,14 +155,16 @@ module SystemMetrics
     end
 
     def process_memory_macos
-      pid = Process.pid
-      output = `ps -o rss= -p #{pid} 2>/dev/null`
-      (output.strip.to_f / 1024).round(1)
+      output = `ps -o rss= -p #{Process.pid} 2>/dev/null`
+      (output.to_f / 1024).round(1)
     rescue
       0.0
     end
   end
 end
+
+# Timestamp format string (frozen)
+TIME_FORMAT = '%H:%M:%S'
 
 # Start system metrics collector
 def start_metrics_collector
@@ -146,34 +174,35 @@ def start_metrics_collector
 
   Thread.new do
     until Metrics.shutdown
-      Metrics.add(:cpu, {
-        time: Time.now.strftime('%H:%M:%S'),
-        percent: SystemMetrics.cpu_percent
-      })
+      # Format timestamp once per cycle
+      timestamp = Time.now.strftime(TIME_FORMAT)
 
-      Metrics.add(:memory, {
-        time: Time.now.strftime('%H:%M:%S'),
-        system_percent: SystemMetrics.memory_percent,
-        process_mb: SystemMetrics.process_memory_mb
-      })
+      # Collect all metrics with shared timestamp
+      Metrics.add_cpu(timestamp, SystemMetrics.cpu_percent)
 
-      # GC stats - real-time Ruby introspection
+      Metrics.add_memory(
+        timestamp,
+        SystemMetrics.memory_percent,
+        SystemMetrics.process_memory_mb
+      )
+
+      # GC stats
       gc_count = GC.count
       gc_stats = GC.stat
-      Metrics.add(:gc, {
-        time: Time.now.strftime('%H:%M:%S'),
-        count: gc_count,
-        delta: gc_count - prev_gc_count,
-        heap_live_slots: gc_stats[:heap_live_slots] || 0,
-        total_allocated_objects: gc_stats[:total_allocated_objects] || 0
-      })
+      Metrics.add_gc(
+        timestamp,
+        gc_count,
+        gc_count - prev_gc_count,
+        gc_stats[:heap_live_slots] || 0,
+        gc_stats[:total_allocated_objects] || 0
+      )
       prev_gc_count = gc_count
 
       sleep 1
     end
   end
 
-  puts "System metrics collector started"
+  puts 'System metrics collector started'
 end
 
 start_metrics_collector
@@ -186,14 +215,14 @@ end
 get '/compute' do
   content_type :json
 
-  n = (params[:n] || 10000).to_i
-  n = [[n, 100].max, 100000].min
+  n = (params[:n] || 10_000).to_i
+  n = [[n, 100].max, 100_000].min
 
   start = Time.now
   count = (2..n).count { |x| prime?(x) }
   duration = ((Time.now - start) * 1000).round(2)
 
-  Metrics.add(:requests, { time: Time.now.strftime('%H:%M:%S'), duration_ms: duration })
+  Metrics.add_request(Time.now.strftime(TIME_FORMAT), duration)
 
   { result: count, n: n, duration_ms: duration }.to_json
 end
@@ -227,4 +256,3 @@ get '/health' do
     memory_mb: SystemMetrics.process_memory_mb
   }.to_json
 end
-
