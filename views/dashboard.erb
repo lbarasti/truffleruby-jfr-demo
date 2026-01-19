@@ -44,6 +44,10 @@
       <h2>Request Latency (ms)</h2>
       <canvas id="reqChart"></canvas>
     </div>
+    <div class="card">
+      <h2>GC Activity</h2>
+      <canvas id="gcChart"></canvas>
+    </div>
   </div>
 
   <script>
@@ -75,6 +79,25 @@
     });
 
     const reqChart = new Chart(document.getElementById('reqChart'), chartConfig('Latency (ms)', '#9c27b0'));
+
+    const gcChart = new Chart(document.getElementById('gcChart'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'GC runs/sec', data: [], borderColor: '#ff9800', tension: 0.3, fill: false },
+          { label: 'Live objects (k)', data: [], borderColor: '#607d8b', tension: 0.3, fill: false, yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'GC/s' } },
+          y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'k objects' }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
 
     function updateChart(chart, labels, data, datasetIndex = 0) {
       chart.data.labels = labels;
@@ -119,7 +142,16 @@
         const values = data.requests.map(r => r.duration_ms);
         updateChart(reqChart, labels, values);
       }
-    };
+
+      // GC chart
+      if (data.gc && data.gc.length > 0) {
+        const labels = data.gc.map(d => d.time);
+        gcChart.data.labels = labels;
+        gcChart.data.datasets[0].data = data.gc.map(d => d.delta);
+        gcChart.data.datasets[1].data = data.gc.map(d => (d.heap_live_slots / 1000).toFixed(1));
+        gcChart.update('none');
+      }
+    }
 
     function triggerCompute(n) {
       fetch('/compute?n=' + n)

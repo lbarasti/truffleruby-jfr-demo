@@ -14,7 +14,8 @@ module Metrics
   @data = {
     cpu: [],
     memory: [],
-    requests: []
+    requests: [],
+    gc: []
   }
 
   class << self
@@ -141,6 +142,7 @@ end
 def start_metrics_collector
   # Prime the CPU calculation
   SystemMetrics.cpu_percent
+  prev_gc_count = GC.count
 
   Thread.new do
     until Metrics.shutdown
@@ -154,6 +156,18 @@ def start_metrics_collector
         system_percent: SystemMetrics.memory_percent,
         process_mb: SystemMetrics.process_memory_mb
       })
+
+      # GC stats - real-time Ruby introspection
+      gc_count = GC.count
+      gc_stats = GC.stat
+      Metrics.add(:gc, {
+        time: Time.now.strftime('%H:%M:%S'),
+        count: gc_count,
+        delta: gc_count - prev_gc_count,
+        heap_live_slots: gc_stats[:heap_live_slots] || 0,
+        total_allocated_objects: gc_stats[:total_allocated_objects] || 0
+      })
+      prev_gc_count = gc_count
 
       sleep 1
     end
