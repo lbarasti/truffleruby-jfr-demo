@@ -23,7 +23,6 @@
 <body>
   <div class="status" id="status">Connecting...</div>
   <h1>TruffleRuby Metrics Dashboard</h1>
-  <p><a href="/">Back to Home</a></p>
 
   <div class="actions">
     <button onclick="triggerCompute(10000)">Compute n=10k</button>
@@ -105,21 +104,43 @@
       chart.update('none');
     }
 
-    const evtSource = new EventSource('/events');
     const statusEl = document.getElementById('status');
+    let evtSource = null;
+    let lastMessageTime = 0;
 
-    evtSource.onopen = () => {
-      statusEl.textContent = 'Connected';
-      statusEl.classList.remove('error');
-    };
+    function connect() {
+      if (evtSource) {
+        evtSource.close();
+      }
 
-    evtSource.onerror = () => {
-      statusEl.textContent = 'Disconnected';
-      statusEl.classList.add('error');
-    };
+      evtSource = new EventSource('/events');
 
-    evtSource.onmessage = (e) => {
-      const data = JSON.parse(e.data);
+      evtSource.onmessage = (e) => {
+        lastMessageTime = Date.now();
+        statusEl.textContent = 'Connected';
+        statusEl.classList.remove('error');
+        handleMessage(JSON.parse(e.data));
+      };
+
+      evtSource.onerror = () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.classList.add('error');
+      };
+    }
+
+    // Check connection health and reconnect if needed
+    setInterval(() => {
+      const now = Date.now();
+      if (lastMessageTime > 0 && now - lastMessageTime > 3000) {
+        statusEl.textContent = 'Reconnecting...';
+        statusEl.classList.add('error');
+        connect();
+      }
+    }, 3000);
+
+    connect();
+
+    function handleMessage(data) {
 
       // CPU chart
       if (data.cpu && data.cpu.length > 0) {
