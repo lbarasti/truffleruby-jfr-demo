@@ -1,2 +1,3 @@
 # JFR recordings
 *.jfr
+flamegraph.svg

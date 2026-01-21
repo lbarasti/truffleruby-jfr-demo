@@ -7,12 +7,13 @@ configure do
   set :port, ENV.fetch('PORT', 8080).to_i
   set :bind, '0.0.0.0'
   set :host_authorization, permitted_hosts: []
+  # Force Puma to kill connections after 2 seconds on shutdown
+  set :server_settings, force_shutdown_after: 2
 end
 
 # Metrics collector module with object pooling
 module Metrics
   MAX_ENTRIES = 60
-  @shutdown = false
   @data = {
     cpu: [],
     memory: [],
@@ -20,13 +21,8 @@ module Metrics
     gc: []
   }
 
-  # Pre-allocate reusable entry hashes to reduce allocations
-  @cpu_entry = { time: nil, percent: nil }
-  @memory_entry = { time: nil, system_percent: nil, process_mb: nil }
-  @gc_entry = { time: nil, count: nil, delta: nil, heap_live_slots: nil, total_allocated_objects: nil }
-
   class << self
-    attr_accessor :shutdown, :data
+    attr_accessor :data
 
     def add_cpu(time, percent)
       @data[:cpu] << { time: time, percent: percent }
@@ -55,10 +51,6 @@ module Metrics
     end
   end
 end
-
-# Handle CTRL-C gracefully
-trap('INT') { Metrics.shutdown = true; exit }
-trap('TERM') { Metrics.shutdown = true; exit }
 
 # Prime checking (intentionally inefficient for CPU demo)
 def prime?(n)
@@ -173,7 +165,7 @@ def start_metrics_collector
   prev_gc_count = GC.count
 
   Thread.new do
-    until Metrics.shutdown
+    loop do
       # Format timestamp once per cycle
       timestamp = Time.now.strftime(TIME_FORMAT)
 
@@ -238,12 +230,10 @@ get '/events' do
 
   stream(:keep_open) do |out|
     loop do
-      begin
-        out << "data: #{Metrics.data.to_json}\n\n"
-        sleep 1
-      rescue IOError
-        break
-      end
+      out << "data: #{Metrics.data.to_json}\n\n"
+      sleep 1
+    rescue IOError
+      break
     end
   end
 end
