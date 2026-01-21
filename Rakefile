@@ -9,4 +9,11 @@ task :jfr do
   exec 'ruby', "--vm.XX:StartFlightRecording=filename=#{jfr_file},dumponexit=true", 'app.rb'
 end
 
+desc 'Test JFR streaming'
+task :jfr_streaming do
+  exec 'ruby',
+    '--vm.XX:+FlightRecorder',
+    'jfr_streaming_test.rb'
+end
+
 task default: :server
