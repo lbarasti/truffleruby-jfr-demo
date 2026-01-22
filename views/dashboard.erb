@@ -9,9 +9,10 @@
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
     .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .card h2 { margin: 0 0 15px; font-size: 16px; color: #666; }
+    .card.wide { grid-column: 1 / -1; }
     canvas { width: 100% !important; height: 200px !important; }
     .status { position: fixed; top: 10px; right: 20px; padding: 8px 16px;
-              background: #4caf50; color: white; border-radius: 4px; font-size: 14px; }
+              background: #4caf50; color: white; border-radius: 4px; font-size: 14px; z-index: 100; }
     .status.error { background: #f44336; }
     .actions { margin-bottom: 20px; }
     .actions button { padding: 10px 20px; font-size: 14px; cursor: pointer;
@@ -22,9 +23,30 @@
     .section-title { margin: 20px 0 10px; color: #666; font-size: 14px; font-weight: 600; }
     .upload-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .upload-form input[type="file"] { padding: 8px; }
-    .image-output { margin-top: 20px; }
+    .image-output { margin-top: 20px; margin-bottom: 20px; }
     .image-output img { max-width: 512px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .image-output .placeholder { color: #999; font-style: italic; }
+
+    /* JFR Events styles */
+    .jfr-events { max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    .jfr-event { padding: 6px 10px; border-left: 3px solid #ccc; margin-bottom: 4px; background: #fafafa; }
+    .jfr-event .time { color: #666; margin-right: 8px; }
+    .jfr-event .type { font-weight: 600; margin-right: 8px; }
+    .jfr-event .duration { color: #9c27b0; margin-right: 8px; }
+    .jfr-event .data { color: #666; font-size: 11px; }
+    .jfr-event.gc { border-color: #ff9800; background: #fff8e1; }
+    .jfr-event.alloc { border-color: #2196f3; background: #e3f2fd; }
+    .jfr-event.thread { border-color: #4caf50; background: #e8f5e9; }
+    .jfr-event.app { border-color: #9c27b0; background: #f3e5f5; }
+    .jfr-event.monitor { border-color: #f44336; background: #ffebee; }
+    .jfr-legend { display: flex; gap: 15px; margin-bottom: 10px; flex-wrap: wrap; }
+    .jfr-legend span { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+    .jfr-legend .dot { width: 10px; height: 10px; border-radius: 2px; }
+    .jfr-legend .dot.gc { background: #ff9800; }
+    .jfr-legend .dot.alloc { background: #2196f3; }
+    .jfr-legend .dot.thread { background: #4caf50; }
+    .jfr-legend .dot.app { background: #9c27b0; }
+    .jfr-legend .dot.monitor { background: #f44336; }
   </style>
 </head>
 <body>
@@ -71,6 +93,19 @@
     <div class="card">
       <h2>GC Activity</h2>
       <canvas id="gcChart"></canvas>
+    </div>
+    <div class="card wide">
+      <h2>JFR Events (Live Stream)</h2>
+      <div class="jfr-legend">
+        <span><span class="dot gc"></span> GC</span>
+        <span><span class="dot alloc"></span> Allocation</span>
+        <span><span class="dot thread"></span> Thread</span>
+        <span><span class="dot app"></span> App</span>
+        <span><span class="dot monitor"></span> Monitor</span>
+      </div>
+      <div class="jfr-events" id="jfrEvents">
+        <div class="jfr-event"><span class="data">Waiting for JFR events...</span></div>
+      </div>
     </div>
   </div>
 
@@ -197,6 +232,11 @@
         gcChart.data.datasets[1].data = data.gc.map(d => (d.heap_live_slots / 1000).toFixed(1));
         gcChart.update('none');
       }
+
+      // JFR events (now part of main stream)
+      if (data.jfr && data.jfr.length > 0) {
+        data.jfr.forEach(addJfrEvent);
+      }
     }
 
     function generateImage(type, size) {
@@ -246,6 +286,59 @@
           resultDiv.innerHTML = '<span class="placeholder">Error: ' + err.message + '</span>';
         });
     }
+
+    // JFR Events handling
+    const jfrEventsDiv = document.getElementById('jfrEvents');
+    const MAX_JFR_EVENTS = 50;
+    let jfrEventCount = 0;
+
+    function getEventClass(type) {
+      if (type.includes('GarbageCollection') || type.includes('GC')) return 'gc';
+      if (type.includes('Allocation')) return 'alloc';
+      if (type.includes('Thread')) return 'thread';
+      if (type.includes('Monitor')) return 'monitor';
+      if (type.startsWith('app.')) return 'app';
+      return '';
+    }
+
+    function formatEventData(data) {
+      if (!data || Object.keys(data).length === 0) return '';
+      const parts = [];
+      for (const [key, value] of Object.entries(data)) {
+        if (key !== 'type' && key !== 'time' && key !== 'duration_ms' && key !== 'request_id') {
+          parts.push(key + '=' + (typeof value === 'number' ? value.toFixed ? value.toFixed(2) : value : value));
+        }
+      }
+      return parts.join(', ');
+    }
+
+    function addJfrEvent(event) {
+      if (jfrEventCount === 0) {
+        jfrEventsDiv.innerHTML = '';
+      }
+
+      const div = document.createElement('div');
+      div.className = 'jfr-event ' + getEventClass(event.type);
+
+      let html = '<span class="time">' + (event.time || '--') + '</span>';
+      html += '<span class="type">' + event.type + '</span>';
+      if (event.duration_ms) {
+        html += '<span class="duration">' + event.duration_ms.toFixed(2) + 'ms</span>';
+      }
+      const dataStr = formatEventData(event.data);
+      if (dataStr) {
+        html += '<span class="data">' + dataStr + '</span>';
+      }
+
+      div.innerHTML = html;
+      jfrEventsDiv.insertBefore(div, jfrEventsDiv.firstChild);
+
+      jfrEventCount++;
+      while (jfrEventsDiv.children.length > MAX_JFR_EVENTS) {
+        jfrEventsDiv.removeChild(jfrEventsDiv.lastChild);
+      }
+    }
+
   </script>
 </body>
 </html>
