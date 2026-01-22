@@ -55,26 +55,60 @@ puts "-" * 50
 
 begin
   RecordingStream = Java.type('jdk.jfr.consumer.RecordingStream')
-  stream = RecordingStream.new
+  puts "✓ RecordingStream class loaded"
 
+  stream = RecordingStream.new
+  puts "✓ RecordingStream instance created"
+
+  # Enable multiple event types (use default periods)
   stream.enable('jdk.CPULoad')
   stream.enable('jdk.GarbageCollection')
+  puts "✓ Events enabled"
+
+  # Try setting up event callbacks
+  cpu_count = 0
+  gc_count = 0
 
   stream.onEvent('jdk.CPULoad') do |event|
-    puts "CPU Load event received!"
+    cpu_count += 1
+    puts "  CPU Event: jvmUser=#{event.getFloat('jvmUser')}"
   end
 
-  stream.startAsync
-  puts "SUCCESS: JFR event streaming is working!"
+  stream.onEvent('jdk.GarbageCollection') do |event|
+    gc_count += 1
+    puts "  GC Event: cause=#{event.getString('cause')}"
+  end
+  puts "✓ Callbacks registered"
 
-  sleep 5
+  # Start recording in async mode
+  stream.startAsync
+  puts "✓ Stream started in async mode"
+
+  # Do some work to generate events
+  puts "Doing some work to generate events..."
+  5.times do
+    arr = (1..10000).to_a.shuffle
+    sleep 0.5
+    print "."
+  end
+  puts
+
   stream.close
+  puts "✓ Stream closed"
+  puts "  Events: CPU=#{cpu_count}, GC=#{gc_count}"
+
+  total = cpu_count + gc_count
+  puts
+  if total > 0
+    puts "SUCCESS: JFR event streaming with callbacks works! (#{total} events received)"
+  else
+    puts "WARNING: Callbacks registered but no events received."
+    puts "This might be a threading issue or events are processed differently in native."
+  end
 rescue NameError => e
   puts "FAILED: #{e.class} - #{e.message}"
   puts
   puts "This appears to be a host class access restriction."
-  puts "The JFR consumer classes are not exposed to the polyglot context"
-  puts "in TruffleRuby's native image build."
 rescue => e
   puts "FAILED: #{e.class} - #{e.message}"
   puts e.backtrace.first(5).join("\n")

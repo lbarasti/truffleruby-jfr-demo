@@ -12,7 +12,6 @@ end
 desc 'Test JFR streaming'
 task :jfr_streaming do
   exec 'ruby',
-    '--vm.XX:+FlightRecorder',
     'jfr_streaming_test.rb'
 end
 
