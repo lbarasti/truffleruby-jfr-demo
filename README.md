@@ -12,9 +12,12 @@ https://truffleruby-jfr-demo.fly.dev/
 app.rb
 ├── SystemMetrics module    → /proc (Linux) or top/vm_stat/ps (macOS)
 ├── Metrics module          → ring buffer (60 entries max)
+├── ImageJobs module        → ChunkyPNG-based image processing
 ├── Background thread       → samples metrics every 1s
 ├── GET /                   → redirects to /dashboard
-├── GET /compute?n=N        → CPU-bound prime counting
+├── GET /mandelbrot         → generate Mandelbrot fractal PNG
+├── GET /plasma             → generate plasma pattern PNG
+├── POST /process           → apply filter to uploaded PNG
 ├── GET /dashboard          → Chart.js real-time dashboard
 ├── GET /events             → SSE stream of metrics
 └── GET /health             → health check endpoint
@@ -60,7 +63,7 @@ fly deploy
 | `Rakefile` | Tasks: `server` (default), `jfr` (with JFR recording) |
 | `Dockerfile` | TruffleRuby 33 native standalone on Debian |
 | `fly.toml` | Fly.io deployment config |
-| `Gemfile` | Dependencies: sinatra, puma, rackup, json |
+| `Gemfile` | Dependencies: sinatra, puma, rackup, json, chunky_png |
 | `config.ru` | Rack config |
 
 ## Known Issues / TODOs

@@ -37,8 +37,10 @@ A background thread samples system metrics every second. The `/events` endpoint 
 | Endpoint | Purpose |
 |----------|---------|
 | `/` | Redirects to /dashboard |
-| `/compute?n=N` | CPU-bound prime counting (N clamped to 100-100000) |
-| `/dashboard` | Real-time Chart.js dashboard consuming SSE |
+| `/mandelbrot?size=N&iter=M` | Generate Mandelbrot fractal PNG (size 64-512, iter 50-500) |
+| `/plasma?size=N&scale=F` | Generate plasma/noise pattern PNG (size 64-512) |
+| `POST /process` | Process uploaded PNG with filter (grayscale, pixelate, edge) |
+| `/dashboard` | Real-time Chart.js dashboard with image generation controls |
 | `/events` | SSE stream of metrics snapshot |
 | `/health` | Health check returning Ruby version and memory |
 

@@ -17,7 +17,14 @@
     .actions button { padding: 10px 20px; font-size: 14px; cursor: pointer;
                       background: #e44d26; color: white; border: none; border-radius: 4px; margin-right: 10px; }
     .actions button:hover { background: #c73d1a; }
+    .actions select { padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; margin-right: 10px; }
     a { color: #e44d26; }
+    .section-title { margin: 20px 0 10px; color: #666; font-size: 14px; font-weight: 600; }
+    .upload-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .upload-form input[type="file"] { padding: 8px; }
+    .image-output { margin-top: 20px; }
+    .image-output img { max-width: 512px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .image-output .placeholder { color: #999; font-style: italic; }
   </style>
 </head>
 <body>
@@ -25,9 +32,27 @@
   <h1>TruffleRuby Metrics Dashboard</h1>
 
   <div class="actions">
-    <button onclick="triggerCompute(10000)">Compute n=10k</button>
-    <button onclick="triggerCompute(50000)">Compute n=50k</button>
-    <button onclick="triggerCompute(100000)">Compute n=100k</button>
+    <div class="section-title">Generate Images (CPU-intensive)</div>
+    <button onclick="generateImage('mandelbrot', 256)">Mandelbrot 256px</button>
+    <button onclick="generateImage('mandelbrot', 512)">Mandelbrot 512px</button>
+    <button onclick="generateImage('plasma', 256)">Plasma 256px</button>
+    <button onclick="generateImage('plasma', 512)">Plasma 512px</button>
+
+    <div class="section-title">Process Uploaded Image</div>
+    <div class="upload-form">
+      <input type="file" id="imageUpload" accept="image/png">
+      <select id="filterSelect">
+        <option value="grayscale">Grayscale</option>
+        <option value="pixelate">Pixelate</option>
+        <option value="edge">Edge Detection</option>
+      </select>
+      <button onclick="processUpload()">Process Image</button>
+    </div>
+  </div>
+
+  <div class="image-output">
+    <div class="section-title">Output</div>
+    <div id="imageResult"><span class="placeholder">Generated or processed image will appear here...</span></div>
   </div>
 
   <div class="grid">
@@ -174,10 +199,52 @@
       }
     }
 
-    function triggerCompute(n) {
-      fetch('/compute?n=' + n)
-        .then(r => r.json())
-        .then(d => console.log('Computed:', d));
+    function generateImage(type, size) {
+      const resultDiv = document.getElementById('imageResult');
+      resultDiv.innerHTML = '<span class="placeholder">Generating...</span>';
+
+      fetch('/' + type + '?size=' + size)
+        .then(r => r.blob())
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          resultDiv.innerHTML = '<img src="' + url + '" alt="Generated ' + type + '">';
+        })
+        .catch(err => {
+          resultDiv.innerHTML = '<span class="placeholder">Error: ' + err.message + '</span>';
+        });
+    }
+
+    function processUpload() {
+      const fileInput = document.getElementById('imageUpload');
+      const filter = document.getElementById('filterSelect').value;
+      const resultDiv = document.getElementById('imageResult');
+
+      if (!fileInput.files[0]) {
+        alert('Please select a PNG image first');
+        return;
+      }
+
+      resultDiv.innerHTML = '<span class="placeholder">Processing...</span>';
+
+      const formData = new FormData();
+      formData.append('image', fileInput.files[0]);
+      formData.append('filter', filter);
+
+      fetch('/process', {
+        method: 'POST',
+        body: formData
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Processing failed');
+          return r.blob();
+        })
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          resultDiv.innerHTML = '<img src="' + url + '" alt="Processed image">';
+        })
+        .catch(err => {
+          resultDiv.innerHTML = '<span class="placeholder">Error: ' + err.message + '</span>';
+        });
     }
   </script>
 </body>
