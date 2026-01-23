@@ -37,6 +37,7 @@ module JFREvents
         # Enable and register callbacks for each event type
         WATCHED_EVENTS.each do |event_type|
           @stream.enable(event_type)
+
           @stream.onEvent(event_type) do |event|
             begin
               handle_jfr_event(event_type, event)
@@ -92,7 +93,7 @@ module JFREvents
       when 'jdk.CPULoad'
         { jvmUser: safe_get_float(event, 'jvmUser'), jvmSystem: safe_get_float(event, 'jvmSystem') }
       when 'jdk.ThreadStart', 'jdk.ThreadEnd'
-        { thread: safe_get_string(event, 'thread') }
+        { thread: safe_get_thread_name(event, 'thread') }
       when 'jdk.JavaMonitorEnter', 'jdk.JavaMonitorWait'
         { monitorClass: safe_get_string(event, 'monitorClass') }
       else
@@ -118,6 +119,14 @@ module JFREvents
       event.getLong(field)
     rescue
       nil
+    end
+
+    def safe_get_thread_name(event, field)
+      thread = event.getThread(field)
+      return nil unless thread
+      thread.getJavaName
+    rescue
+      safe_get_string(event, field)
     end
 
     public
@@ -181,13 +190,14 @@ module JFREvents
     # Note: Requires Metrics module to be loaded
     def track_job(job, **params)
       request_id = "#{job}-#{Time.now.to_f}"
-      emit('ImageJobStart', request_id: request_id, job: job, **params)
+      thread_name = Thread.current.name || "Thread-#{Thread.current.object_id}"
+      emit('ImageJobStart', request_id: request_id, job: job, thread: thread_name, **params)
 
       start = Time.now
       result = yield
       duration = ((Time.now - start) * 1000).round(2)
 
-      emit('ImageJobEnd', request_id: request_id, job: job, duration_ms: duration, **params)
+      emit('ImageJobEnd', request_id: request_id, job: job, thread: thread_name, duration_ms: duration, **params)
       Metrics.add_request(Time.now.strftime(TIME_FORMAT), duration)
 
       result
