@@ -7,9 +7,15 @@ require_relative 'lib/image_jobs'
 require_relative 'lib/metrics'
 require_relative 'lib/jfr_events'
 require_relative 'lib/system_metrics'
+require_relative 'lib/queue_limiter'
+require_relative 'lib/processing_gate'
 
 MAX_UPLOAD_BYTES = ENV.fetch('MAX_UPLOAD_BYTES', 5 * 1024 * 1024).to_i
 MAX_IMAGE_PIXELS = ENV.fetch('MAX_IMAGE_PIXELS', 2_000_000).to_i
+MAX_INFLIGHT = ENV.fetch('MAX_INFLIGHT', 4).to_i
+MAX_QUEUE_WAIT_MS = ENV.fetch('MAX_QUEUE_WAIT_MS', 250).to_i
+
+PROCESSING_LIMITER = QueueLimiter.new(MAX_INFLIGHT, MAX_QUEUE_WAIT_MS)
 
 class RequestSizeLimiter
   def initialize(app, max_bytes)
@@ -57,6 +63,7 @@ configure do
   set :host_authorization, permitted_hosts: []
   # Force Puma to kill connections after 2 seconds on shutdown
   set :server_settings, force_shutdown_after: 2
+  use ProcessingGate, PROCESSING_LIMITER, MAX_INFLIGHT, MAX_QUEUE_WAIT_MS
   use RequestSizeLimiter, MAX_UPLOAD_BYTES
 end
 
