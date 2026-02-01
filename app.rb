@@ -150,6 +150,19 @@ get '/plasma' do
   end.to_blob
 end
 
+# Generate random generative art
+get '/generative' do
+  content_type 'image/png'
+
+  size = (params[:size] || 512).to_i
+  size = [[size, 64].max, 512].min
+  seed = params[:seed]&.to_i
+
+  JFREvents.track_job('generative', size: size, seed: seed || 'random') do
+    ImageJobs.generative(size: size, seed: seed)
+  end.to_blob
+end
+
 # Process uploaded image with filter
 post '/process' do
   content_type :json

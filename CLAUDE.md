@@ -39,8 +39,9 @@ A background thread samples system metrics every second. The `/events` endpoint 
 | `/` | Redirects to /dashboard |
 | `/mandelbrot?size=N&iter=M` | Generate Mandelbrot fractal PNG (size 64-512, iter 50-500) |
 | `/plasma?size=N&scale=F` | Generate plasma/noise pattern PNG (size 64-512) |
+| `/generative?size=N&seed=S` | Generate geometric Voronoi art PNG (size 64-512, seed optional) |
 | `POST /process` | Process uploaded PNG with filter (grayscale, pixelate, edge) |
-| `/dashboard` | Real-time Chart.js dashboard with image generation controls |
+| `/dashboard` | Real-time Plotly dashboard with image generation controls |
 | `/events` | SSE stream of metrics snapshot |
 | `/health` | Health check returning Ruby version and memory |
 

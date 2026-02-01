@@ -85,6 +85,7 @@
     .thread-job { position: absolute; height: 16px; top: 2px; border-radius: 3px; font-size: 9px; color: white; display: flex; align-items: center; justify-content: center; overflow: hidden; min-width: 4px; }
     .thread-job.mandelbrot { background: #e44d26; }
     .thread-job.plasma { background: #9c27b0; }
+    .thread-job.generative { background: #00bcd4; }
     .thread-job.process { background: #2196f3; }
     .thread-job.gc { background: #ff9800; }
     .thread-legend { display: flex; gap: 15px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -92,6 +93,7 @@
     .thread-legend .dot { width: 12px; height: 12px; border-radius: 3px; }
     .thread-legend .dot.mandelbrot { background: #e44d26; }
     .thread-legend .dot.plasma { background: #9c27b0; }
+    .thread-legend .dot.generative { background: #00bcd4; }
     .thread-legend .dot.process { background: #2196f3; }
     .thread-legend .dot.gc { background: #ff9800; }
 
@@ -127,6 +129,7 @@
           <button onclick="generateImage('mandelbrot', 512)">Mandelbrot 512</button>
           <button onclick="generateImage('plasma', 256)">Plasma 256</button>
           <button onclick="generateImage('plasma', 512)">Plasma 512</button>
+          <button onclick="generateImage('generative', 512)">Random Art 512</button>
 
           <div class="section-title">Process Upload</div>
           <div class="upload-form">
@@ -171,6 +174,7 @@
       <div class="thread-legend">
         <span><span class="dot mandelbrot"></span> Mandelbrot</span>
         <span><span class="dot plasma"></span> Plasma</span>
+        <span><span class="dot generative"></span> Generative</span>
         <span><span class="dot process"></span> Process</span>
         <span><span class="dot gc"></span> GC</span>
       </div>

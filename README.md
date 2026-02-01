@@ -17,8 +17,9 @@ app.rb
 ├── GET /                   → redirects to /dashboard
 ├── GET /mandelbrot         → generate Mandelbrot fractal PNG
 ├── GET /plasma             → generate plasma pattern PNG
+├── GET /generative         → generate geometric Voronoi art PNG
 ├── POST /process           → apply filter to uploaded PNG
-├── GET /dashboard          → Chart.js real-time dashboard
+├── GET /dashboard          → Plotly real-time dashboard
 ├── GET /events             → SSE stream of metrics
 └── GET /health             → health check endpoint
 ```
@@ -34,7 +35,7 @@ app.rb
 
 ## Backpressure Configuration
 
-The app uses a bounded queue to apply backpressure on CPU-intensive routes (`/mandelbrot`, `/plasma`, `/process`):
+The app uses a bounded queue to apply backpressure on CPU-intensive routes (`/mandelbrot`, `/plasma`, `/generative`, `/process`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -85,7 +86,7 @@ fly deploy
 | File | Purpose |
 |------|---------|
 | `app.rb` | Main Sinatra app with metrics collection |
-| `views/dashboard.erb` | Real-time charts (Chart.js + SSE) |
+| `views/dashboard.erb` | Real-time charts (Plotly + SSE) |
 | `Rakefile` | Tasks: `server` (default), `jfr` (with JFR recording) |
 | `Dockerfile` | TruffleRuby 33 native standalone on Debian |
 | `fly.toml` | Fly.io deployment config |
