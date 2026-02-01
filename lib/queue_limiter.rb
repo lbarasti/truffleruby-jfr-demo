@@ -7,22 +7,17 @@ class QueueLimiter
     @max_queue_depth = max_queue_depth
     @tokens = SizedQueue.new(max_inflight)
     max_inflight.times { @tokens << :token }
-    @waiting = 0
   end
 
   # Returns :acquired, :queue_full, or :timeout
-  # Note: @waiting is approximate (no mutex) - SizedQueue provides real synchronization
   def acquire
-    return :queue_full if @waiting >= @max_queue_depth
+    return :queue_full if @tokens.num_waiting >= @max_queue_depth
 
-    @waiting += 1
     begin
       token = @tokens.pop(false, timeout: @max_wait_seconds)
       token.nil? ? :timeout : :acquired
     rescue ThreadError
       :timeout
-    ensure
-      @waiting -= 1
     end
   end
 
@@ -41,7 +36,7 @@ class QueueLimiter
   end
 
   def waiting
-    @waiting
+    @tokens.num_waiting
   end
 
   def queue_depth
