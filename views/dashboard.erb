@@ -125,11 +125,15 @@
         <h2>Image Generation</h2>
         <div class="actions">
           <div class="section-title">Generate (CPU-intensive)</div>
-          <button onclick="generateImage('mandelbrot', 256)">Mandelbrot 256</button>
-          <button onclick="generateImage('mandelbrot', 512)">Mandelbrot 512</button>
-          <button onclick="generateImage('plasma', 256)">Plasma 256</button>
-          <button onclick="generateImage('plasma', 512)">Plasma 512</button>
-          <button onclick="generateImage('generative', 512)">Random Art 512</button>
+          <select id="sizeSelect">
+            <option value="256">256</option>
+            <option value="512" selected>512</option>
+            <option value="768">768</option>
+            <option value="1024">1024</option>
+          </select>
+          <button onclick="generateImage('mandelbrot')">Mandelbrot</button>
+          <button onclick="generateImage('plasma')">Plasma</button>
+          <button onclick="generateImage('generative')">Voronoi</button>
 
           <div class="section-title">Process Upload</div>
           <div class="upload-form">
@@ -504,7 +508,8 @@
       return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
-    async function generateImage(type, size) {
+    async function generateImage(type) {
+      const size = document.getElementById('sizeSelect').value;
       try {
         const r = await fetch(`/${type}?size=${size}`);
         if (!r.ok) {
