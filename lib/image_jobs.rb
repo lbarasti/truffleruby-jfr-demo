@@ -4,6 +4,23 @@ require 'chunky_png'
 
 # Image processing jobs - CPU intensive operations for generating and processing images
 module ImageJobs
+  PNG_SIGNATURE = "\x89PNG\r\n\x1a\n".b
+
+  # Read PNG dimensions without full decode
+  def self.png_dimensions(io)
+    io.rewind
+    header = io.read(24)
+    return nil if header.nil? || header.bytesize < 24
+    return nil unless header.start_with?(PNG_SIGNATURE)
+    return nil unless header.byteslice(12, 4) == "IHDR".b
+
+    width = header.byteslice(16, 4).unpack1("N")
+    height = header.byteslice(20, 4).unpack1("N")
+    [width, height]
+  ensure
+    io.rewind
+  end
+
   # Generate Mandelbrot fractal - very CPU intensive
   def self.mandelbrot(size: 256, max_iter: 100)
     png = ChunkyPNG::Image.new(size, size, ChunkyPNG::Color::BLACK)

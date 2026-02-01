@@ -8,12 +8,56 @@ require_relative 'lib/metrics'
 require_relative 'lib/jfr_events'
 require_relative 'lib/system_metrics'
 
+MAX_UPLOAD_BYTES = ENV.fetch('MAX_UPLOAD_BYTES', 5 * 1024 * 1024).to_i
+MAX_IMAGE_PIXELS = ENV.fetch('MAX_IMAGE_PIXELS', 2_000_000).to_i
+
+class RequestSizeLimiter
+  def initialize(app, max_bytes)
+    @app = app
+    @max_bytes = max_bytes
+  end
+
+  def call(env)
+    content_length = env['CONTENT_LENGTH'].to_i
+    if content_length > 0 && content_length > @max_bytes
+      body = { error: 'Payload too large', max_bytes: @max_bytes }.to_json
+      return [413, { 'Content-Type' => 'application/json' }, [body]]
+    end
+
+    @app.call(env)
+  end
+end
+
+def validate_dimensions!(tempfile)
+  dimensions = ImageJobs.png_dimensions(tempfile)
+  unless dimensions
+    halt 400, { error: 'Invalid PNG image' }.to_json
+  end
+
+  width, height = dimensions
+  pixels = width * height
+  if pixels > MAX_IMAGE_PIXELS
+    halt 413, {
+      error: 'Image exceeds max pixel count',
+      max_pixels: MAX_IMAGE_PIXELS,
+      pixels: pixels
+    }.to_json
+  end
+end
+
+def validate_size!(tempfile)
+  if tempfile.size > MAX_UPLOAD_BYTES
+    halt 413, { error: 'Payload too large', max_bytes: MAX_UPLOAD_BYTES }.to_json
+  end
+end
+
 configure do
   set :port, ENV.fetch('PORT', 8080).to_i
   set :bind, '0.0.0.0'
   set :host_authorization, permitted_hosts: []
   # Force Puma to kill connections after 2 seconds on shutdown
   set :server_settings, force_shutdown_after: 2
+  use RequestSizeLimiter, MAX_UPLOAD_BYTES
 end
 
 # Start system metrics collector
@@ -92,14 +136,19 @@ end
 
 # Process uploaded image with filter
 post '/process' do
-  content_type 'image/png'
+  content_type :json
 
   unless params[:image] && params[:image][:tempfile]
     halt 400, { error: 'No image uploaded' }.to_json
   end
 
   filter = params[:filter] || 'grayscale'
-  png = ChunkyPNG::Image.from_blob(params[:image][:tempfile].read)
+  tempfile = params[:image][:tempfile]
+  validate_size!(tempfile)
+  validate_dimensions!(tempfile)
+
+  png = ChunkyPNG::Image.from_blob(tempfile.read)
+  content_type 'image/png'
 
   JFREvents.track_job('process', filter: filter, pixels: png.width * png.height) do
     case filter
