@@ -69,6 +69,6 @@ class ProcessingGate
     method = env['REQUEST_METHOD']
     return true if method == 'POST' && path == '/process'
 
-    method == 'GET' && (path == '/mandelbrot' || path == '/plasma')
+    method == 'GET' && %w[/mandelbrot /plasma /generative].include?(path)
   end
 end
