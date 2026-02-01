@@ -2,10 +2,7 @@
 <html>
 <head>
   <title>TruffleRuby Metrics Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+  <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
     h1 { margin: 0 0 20px; color: #333; }
@@ -22,7 +19,7 @@
     .card { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .card h2 { margin: 0 0 12px; font-size: 14px; color: #666; }
     .card.wide { grid-column: 1 / -1; }
-    canvas { width: 100% !important; height: 160px !important; }
+    .plotly-chart { width: 100%; height: 180px; }
 
     .status { position: fixed; top: 10px; right: 20px; padding: 8px 16px;
               background: #4caf50; color: white; border-radius: 4px; font-size: 14px; z-index: 100; }
@@ -81,7 +78,7 @@
     .jfr-legend .dot.monitor { background: #f44336; }
 
     /* Thread Timeline styles */
-    .thread-timeline { position: relative; max-height: 250px; overflow-y: auto; }
+    .thread-timeline { position: relative; max-height: 250px; overflow-y: auto; overflow-x: hidden; }
     .thread-lane { display: flex; align-items: center; height: 28px; border-bottom: 1px solid #eee; }
     .thread-lane .name { width: 140px; font-size: 11px; color: #666; padding-right: 8px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
     .thread-lane .track { flex: 1; height: 20px; position: relative; background: #f9f9f9; border-radius: 3px; }
@@ -147,27 +144,27 @@
       <div class="grid">
     <div class="card">
       <h2>CPU Usage (%)</h2>
-      <canvas id="cpuChart"></canvas>
+      <div id="cpuChart" class="plotly-chart"></div>
     </div>
     <div class="card">
       <h2>Memory Usage</h2>
-      <canvas id="memChart"></canvas>
+      <div id="memChart" class="plotly-chart"></div>
     </div>
     <div class="card">
       <h2>Request Latency (ms)</h2>
-      <canvas id="reqChart"></canvas>
+      <div id="reqChart" class="plotly-chart"></div>
     </div>
     <div class="card">
       <h2>GC Activity</h2>
-      <canvas id="gcChart"></canvas>
+      <div id="gcChart" class="plotly-chart"></div>
     </div>
     <div class="card">
       <h2>Queue Pressure</h2>
-      <canvas id="queueChart"></canvas>
+      <div id="queueChart" class="plotly-chart"></div>
     </div>
     <div class="card">
       <h2>Queue Rejections</h2>
-      <canvas id="queueRejectChart"></canvas>
+      <div id="queueRejectChart" class="plotly-chart"></div>
     </div>
     <div class="card wide">
       <h2>Thread Activity</h2>
@@ -266,106 +263,128 @@
       return { left, width };
     }
 
-    // ============ Chart Setup ============
-    const chartConfig = (label, color) => ({
-      type: 'line',
-      data: { labels: [], datasets: [{ label, data: [], borderColor: color, tension: 0.3, fill: false }] },
-      options: { responsive: true, animation: false, scales: { y: { beginAtZero: true } } }
-    });
+    // ============ Plotly Chart Setup ============
+    const defaultLayout = {
+      margin: { l: 50, r: 50, t: 10, b: 50 },
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+      font: { family: 'system-ui, sans-serif', size: 11 },
+      xaxis: { showgrid: false, tickfont: { size: 10 }, nticks: 6, ticklen: 8, ticks: 'outside' },
+      yaxis: { showgrid: true, gridcolor: '#eee', zeroline: false, tickfont: { size: 10 } },
+      showlegend: false,
+      hovermode: 'x unified',
+      hoverlabel: { bgcolor: 'white', bordercolor: '#ccc' }
+    };
 
-    const dualAxisConfig = (label1, color1, label2, color2, yTitle1, yTitle2) => ({
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [
-          { label: label1, data: [], borderColor: color1, tension: 0.3, fill: false },
-          { label: label2, data: [], borderColor: color2, tension: 0.3, fill: false, yAxisID: 'y1' }
-        ]
+    const defaultConfig = { responsive: true, displayModeBar: false, staticPlot: false };
+    const defaultLegend = { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } };
+    const yaxis2Base = { overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero', tickfont: { size: 10 } };
+
+    // Trace templates (reused in init and update)
+    const traces = {
+      cpu: [
+        { type: 'scatter', mode: 'lines', line: { color: '#e44d26', width: 2, shape: 'spline' }, name: 'CPU %' }
+      ],
+      mem: [
+        { type: 'scatter', mode: 'lines', line: { color: '#4caf50', width: 2, shape: 'spline' }, name: 'System %' },
+        { type: 'scatter', mode: 'lines', line: { color: '#2196f3', width: 2, shape: 'spline' }, name: 'Process MB', yaxis: 'y2' }
+      ],
+      req: [
+        { type: 'scatter', mode: 'lines+markers', line: { color: '#9c27b0', width: 2, shape: 'linear' }, marker: { size: 4 }, name: 'Latency (ms)' }
+      ],
+      gc: [
+        { type: 'scatter', mode: 'lines', line: { color: '#ff9800', width: 2, shape: 'spline' }, name: 'GC/s' },
+        { type: 'scatter', mode: 'lines', line: { color: '#607d8b', width: 2, shape: 'spline' }, name: 'k objects', yaxis: 'y2' }
+      ],
+      queue: [
+        { type: 'scatter', mode: 'lines', line: { color: '#e44d26', width: 2, shape: 'spline' }, name: 'Inflight' },
+        { type: 'scatter', mode: 'lines', line: { color: '#ff9800', width: 2, shape: 'spline' }, name: 'Waiting' },
+        { type: 'scatter', mode: 'lines', line: { color: '#4caf50', width: 2, dash: 'dash', shape: 'spline' }, name: 'Available' },
+        { type: 'scatter', mode: 'lines', line: { color: '#2196f3', width: 2, shape: 'spline' }, name: 'Avg wait (ms)', yaxis: 'y2' }
+      ],
+      queueReject: [
+        { type: 'bar', marker: { color: '#f44336' }, name: 'Queue Full' },
+        { type: 'bar', marker: { color: '#ff9800' }, name: 'Timeout' }
+      ]
+    };
+
+    // Layout templates
+    const layouts = {
+      cpu: { ...defaultLayout, yaxis: { ...defaultLayout.yaxis, rangemode: 'tozero' } },
+      mem: {
+        ...defaultLayout, showlegend: true, legend: defaultLegend,
+        yaxis: { ...defaultLayout.yaxis, title: { text: '%', font: { size: 10 } }, rangemode: 'tozero' },
+        yaxis2: { ...yaxis2Base, title: { text: 'MB', font: { size: 10 } } }
       },
-      options: {
-        responsive: true,
-        animation: false,
-        scales: {
-          y: { beginAtZero: true, position: 'left', title: { display: true, text: yTitle1 } },
-          y1: { beginAtZero: true, position: 'right', title: { display: true, text: yTitle2 }, grid: { drawOnChartArea: false } }
-        }
-      }
-    });
-
-    const cpuChart = new Chart(document.getElementById('cpuChart'), chartConfig('CPU %', '#e44d26'));
-    const memChart = new Chart(document.getElementById('memChart'), dualAxisConfig('System %', '#4caf50', 'Process MB', '#2196f3', '%', 'MB'));
-    const gcChart = new Chart(document.getElementById('gcChart'), dualAxisConfig('GC runs/sec', '#ff9800', 'Live objects (k)', '#607d8b', 'GC/s', 'k objects'));
-
-    const queueChart = new Chart(document.getElementById('queueChart'), {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [
-          { label: 'Inflight', data: [], borderColor: '#e44d26', tension: 0.3, fill: false },
-          { label: 'Waiting', data: [], borderColor: '#ff9800', tension: 0.3, fill: false },
-          { label: 'Available', data: [], borderColor: '#4caf50', tension: 0.3, fill: false, borderDash: [6, 4] },
-          { label: 'Avg wait (ms)', data: [], borderColor: '#2196f3', tension: 0.3, fill: false, yAxisID: 'y1' }
-        ]
+      req: {
+        ...defaultLayout,
+        xaxis: { ...defaultLayout.xaxis, type: 'date', tickformat: '%H:%M:%S', nticks: 6 },
+        yaxis: { ...defaultLayout.yaxis, rangemode: 'tozero' },
+        dragmode: 'pan'
       },
-      options: {
-        responsive: true,
-        animation: false,
-        scales: {
-          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Count' } },
-          y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'ms' }, grid: { drawOnChartArea: false } }
-        }
-      }
-    });
-
-    const queueRejectChart = new Chart(document.getElementById('queueRejectChart'), {
-      type: 'bar',
-      data: {
-        labels: [],
-        datasets: [
-          { label: 'Queue Full', data: [], backgroundColor: '#f44336' },
-          { label: 'Timeout', data: [], backgroundColor: '#ff9800' }
-        ]
+      gc: {
+        ...defaultLayout, showlegend: true, legend: defaultLegend,
+        yaxis: { ...defaultLayout.yaxis, title: { text: 'GC/s', font: { size: 10 } }, rangemode: 'tozero' },
+        yaxis2: { ...yaxis2Base, title: { text: 'k objects', font: { size: 10 } } }
       },
-      options: {
-        responsive: true,
-        animation: false,
-        scales: {
-          x: { stacked: true },
-          y: { beginAtZero: true, stacked: true }
-        }
+      queue: {
+        ...defaultLayout, showlegend: true, legend: { ...defaultLegend, y: 1.2, font: { size: 9 } },
+        yaxis: { ...defaultLayout.yaxis, title: { text: 'Count', font: { size: 10 } }, rangemode: 'tozero' },
+        yaxis2: { ...yaxis2Base, title: { text: 'ms', font: { size: 10 } } }
+      },
+      queueReject: {
+        ...defaultLayout, showlegend: true, legend: defaultLegend,
+        barmode: 'stack', yaxis: { ...defaultLayout.yaxis, rangemode: 'tozero' }
       }
-    });
+    };
 
-    const reqChart = new Chart(document.getElementById('reqChart'), {
-      type: 'line',
-      data: { datasets: [{ label: 'Latency (ms)', data: [], borderColor: '#9c27b0', tension: 0.3, fill: false }] },
-      options: {
-        responsive: true,
-        animation: false,
-        scales: {
-          x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } } },
-          y: { beginAtZero: true }
-        },
-        plugins: {
-          zoom: {
-            pan: { enabled: true, mode: 'x' },
-            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
-          }
-        }
-      }
-    });
+    const configs = {
+      default: defaultConfig,
+      req: { ...defaultConfig, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'], scrollZoom: true }
+    };
 
-    function updateChart(chart, labels, data, datasetIndex = 0) {
-      chart.data.labels = labels;
-      chart.data.datasets[datasetIndex].data = data;
-      chart.update('none');
+    // Helper to build traces with data
+    const withData = (template, ...dataSets) => template.map((t, i) => ({ ...t, x: dataSets[i]?.x || [], y: dataSets[i]?.y || [] }));
+
+    // Initialize all charts
+    Plotly.newPlot('cpuChart', withData(traces.cpu), layouts.cpu, configs.default);
+    Plotly.newPlot('memChart', withData(traces.mem), layouts.mem, configs.default);
+    Plotly.newPlot('reqChart', withData(traces.req), layouts.req, configs.req);
+    Plotly.newPlot('gcChart', withData(traces.gc), layouts.gc, configs.default);
+    Plotly.newPlot('queueChart', withData(traces.queue), layouts.queue, configs.default);
+    Plotly.newPlot('queueRejectChart', withData(traces.queueReject), layouts.queueReject, configs.default);
+
+    // ============ Chart Update Functions ============
+    function updateCpuChart(labels, data) {
+      Plotly.react('cpuChart', withData(traces.cpu, { x: labels, y: data }), layouts.cpu, configs.default);
     }
 
-    function updateDualChart(chart, labels, data1, data2) {
-      chart.data.labels = labels;
-      chart.data.datasets[0].data = data1;
-      chart.data.datasets[1].data = data2;
-      chart.update('none');
+    function updateMemChart(labels, systemData, processData) {
+      Plotly.react('memChart', withData(traces.mem, { x: labels, y: systemData }, { x: labels, y: processData }), layouts.mem, configs.default);
+    }
+
+    function updateReqChart(requests) {
+      const today = new Date().toDateString();
+      const x = requests.map(r => new Date(today + ' ' + r.time));
+      const y = requests.map(r => r.duration_ms);
+      Plotly.react('reqChart', withData(traces.req, { x, y }), layouts.req, configs.req);
+    }
+
+    function updateGcChart(labels, gcData, heapData) {
+      Plotly.react('gcChart', withData(traces.gc, { x: labels, y: gcData }, { x: labels, y: heapData }), layouts.gc, configs.default);
+    }
+
+    function updateQueueChart(labels, inflight, waiting, available, avgWait) {
+      Plotly.react('queueChart', withData(traces.queue,
+        { x: labels, y: inflight }, { x: labels, y: waiting },
+        { x: labels, y: available }, { x: labels, y: avgWait }
+      ), layouts.queue, configs.default);
+    }
+
+    function updateQueueRejectChart(labels, rejectedFull, rejectedTimeout) {
+      Plotly.react('queueRejectChart', withData(traces.queueReject,
+        { x: labels, y: rejectedFull }, { x: labels, y: rejectedTimeout }
+      ), layouts.queueReject, configs.default);
     }
 
     const statusEl = document.getElementById('status');
@@ -407,54 +426,47 @@
     function handleMessage(data) {
       // CPU chart
       if (data.cpu?.length > 0) {
-        updateChart(cpuChart, data.cpu.map(d => d.time), data.cpu.map(d => d.percent));
+        updateCpuChart(data.cpu.map(d => d.time), data.cpu.map(d => d.percent));
       }
 
       // Memory chart (dual axis)
       if (data.memory?.length > 0) {
-        updateDualChart(memChart, data.memory.map(d => d.time),
+        updateMemChart(
+          data.memory.map(d => d.time),
           data.memory.map(d => d.system_percent),
-          data.memory.map(d => d.process_mb));
+          data.memory.map(d => d.process_mb)
+        );
       }
 
       // Request latency chart (time-based x-axis)
       if (data.requests?.length > 0) {
-        const today = new Date().toDateString();
-        reqChart.data.datasets[0].data = data.requests.map(r => ({
-          x: new Date(today + ' ' + r.time),
-          y: r.duration_ms
-        }));
-        reqChart.update('none');
+        updateReqChart(data.requests);
       }
 
       // GC chart (dual axis)
       if (data.gc?.length > 0) {
-        updateDualChart(gcChart, data.gc.map(d => d.time),
+        updateGcChart(
+          data.gc.map(d => d.time),
           data.gc.map(d => d.delta),
-          data.gc.map(d => (d.heap_live_slots / 1000).toFixed(1)));
+          data.gc.map(d => (d.heap_live_slots / 1000).toFixed(1))
+        );
       }
 
       // Queue chart
       if (data.queue?.length > 0) {
         const labels = data.queue.map(d => d.time);
-        const inflight = data.queue.map(d => d.inflight);
-        const waiting = data.queue.map(d => d.waiting || 0);
-        const available = data.queue.map(d => d.available);
-        const avgWait = data.queue.map(d => d.avg_wait_ms);
-        const rejectedFull = data.queue.map(d => d.rejected_full || 0);
-        const rejectedTimeout = data.queue.map(d => d.rejected_timeout || 0);
-
-        queueChart.data.labels = labels;
-        queueChart.data.datasets[0].data = inflight;
-        queueChart.data.datasets[1].data = waiting;
-        queueChart.data.datasets[2].data = available;
-        queueChart.data.datasets[3].data = avgWait;
-        queueChart.update('none');
-
-        queueRejectChart.data.labels = labels;
-        queueRejectChart.data.datasets[0].data = rejectedFull;
-        queueRejectChart.data.datasets[1].data = rejectedTimeout;
-        queueRejectChart.update('none');
+        updateQueueChart(
+          labels,
+          data.queue.map(d => d.inflight),
+          data.queue.map(d => d.waiting || 0),
+          data.queue.map(d => d.available),
+          data.queue.map(d => d.avg_wait_ms)
+        );
+        updateQueueRejectChart(
+          labels,
+          data.queue.map(d => d.rejected_full || 0),
+          data.queue.map(d => d.rejected_timeout || 0)
+        );
       }
 
       // JFR events
