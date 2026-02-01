@@ -7,8 +7,12 @@ module Metrics
     cpu: [],
     memory: [],
     requests: [],
-    gc: []
+    gc: [],
+    queue: []
   }
+  @queue_rejections = 0
+  @queue_wait_total_ms = 0
+  @queue_wait_count = 0
   @mutex = Mutex.new
 
   class << self
@@ -19,7 +23,8 @@ module Metrics
           cpu: @data[:cpu].dup,
           memory: @data[:memory].dup,
           requests: @data[:requests].dup,
-          gc: @data[:gc].dup
+          gc: @data[:gc].dup,
+          queue: @data[:queue].dup
         }
       end
     end
@@ -55,6 +60,42 @@ module Metrics
       @mutex.synchronize do
         @data[:requests] << { time: time, duration_ms: duration_ms }
         @data[:requests].shift if @data[:requests].size > MAX_ENTRIES
+      end
+    end
+
+    def record_queue_wait(wait_ms)
+      @mutex.synchronize do
+        @queue_wait_total_ms += wait_ms
+        @queue_wait_count += 1
+      end
+    end
+
+    def record_queue_reject
+      @mutex.synchronize do
+        @queue_rejections += 1
+      end
+    end
+
+    def add_queue_sample(time, inflight, available)
+      @mutex.synchronize do
+        avg_wait_ms = if @queue_wait_count.positive?
+                        (@queue_wait_total_ms / @queue_wait_count.to_f).round(1)
+                      else
+                        0
+                      end
+
+        @data[:queue] << {
+          time: time,
+          inflight: inflight,
+          available: available,
+          rejected: @queue_rejections,
+          avg_wait_ms: avg_wait_ms
+        }
+        @data[:queue].shift if @data[:queue].size > MAX_ENTRIES
+
+        @queue_rejections = 0
+        @queue_wait_total_ms = 0
+        @queue_wait_count = 0
       end
     end
   end

@@ -161,6 +161,14 @@
       <h2>GC Activity</h2>
       <canvas id="gcChart"></canvas>
     </div>
+    <div class="card">
+      <h2>Queue Pressure</h2>
+      <canvas id="queueChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Queue Rejections</h2>
+      <canvas id="queueRejectChart"></canvas>
+    </div>
     <div class="card wide">
       <h2>Thread Activity</h2>
       <div class="thread-legend">
@@ -288,6 +296,36 @@
     const memChart = new Chart(document.getElementById('memChart'), dualAxisConfig('System %', '#4caf50', 'Process MB', '#2196f3', '%', 'MB'));
     const gcChart = new Chart(document.getElementById('gcChart'), dualAxisConfig('GC runs/sec', '#ff9800', 'Live objects (k)', '#607d8b', 'GC/s', 'k objects'));
 
+    const queueChart = new Chart(document.getElementById('queueChart'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Inflight', data: [], borderColor: '#e44d26', tension: 0.3, fill: false },
+          { label: 'Available', data: [], borderColor: '#4caf50', tension: 0.3, fill: false, borderDash: [6, 4] },
+          { label: 'Avg wait (ms)', data: [], borderColor: '#2196f3', tension: 0.3, fill: false, yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Count' } },
+          y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'ms' }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+
+    const queueRejectChart = new Chart(document.getElementById('queueRejectChart'), {
+      type: 'bar',
+      data: { labels: [], datasets: [{ label: 'Rejected (per sec)', data: [], backgroundColor: '#f44336' }] },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
     const reqChart = new Chart(document.getElementById('reqChart'), {
       type: 'line',
       data: { datasets: [{ label: 'Latency (ms)', data: [], borderColor: '#9c27b0', tension: 0.3, fill: false }] },
@@ -384,6 +422,25 @@
         updateDualChart(gcChart, data.gc.map(d => d.time),
           data.gc.map(d => d.delta),
           data.gc.map(d => (d.heap_live_slots / 1000).toFixed(1)));
+      }
+
+      // Queue chart
+      if (data.queue?.length > 0) {
+        const labels = data.queue.map(d => d.time);
+        const inflight = data.queue.map(d => d.inflight);
+        const available = data.queue.map(d => d.available);
+        const avgWait = data.queue.map(d => d.avg_wait_ms);
+        const rejected = data.queue.map(d => d.rejected);
+
+        queueChart.data.labels = labels;
+        queueChart.data.datasets[0].data = inflight;
+        queueChart.data.datasets[1].data = available;
+        queueChart.data.datasets[2].data = avgWait;
+        queueChart.update('none');
+
+        queueRejectChart.data.labels = labels;
+        queueRejectChart.data.datasets[0].data = rejected;
+        queueRejectChart.update('none');
       }
 
       // JFR events

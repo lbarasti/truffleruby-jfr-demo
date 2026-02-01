@@ -97,6 +97,12 @@ def start_metrics_collector
         gc_stats[:heap_live_slots] || 0,
         gc_stats[:total_allocated_objects] || 0
       )
+
+      Metrics.add_queue_sample(
+        timestamp,
+        PROCESSING_LIMITER.inflight,
+        PROCESSING_LIMITER.available
+      )
       prev_gc_count = gc_count
 
       sleep 1

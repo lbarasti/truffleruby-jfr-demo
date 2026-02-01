@@ -2,6 +2,7 @@
 
 class QueueLimiter
   def initialize(max_inflight, max_wait_ms)
+    @max_inflight = max_inflight
     @max_wait_seconds = max_wait_ms / 1000.0
     @tokens = SizedQueue.new(max_inflight)
     max_inflight.times { @tokens << :token }
@@ -18,5 +19,13 @@ class QueueLimiter
     @tokens.push(:token, true)
   rescue ThreadError
     # Ignore over-release to avoid blocking.
+  end
+
+  def inflight
+    @max_inflight - @tokens.size
+  end
+
+  def available
+    @tokens.size
   end
 end
