@@ -1,19 +1,32 @@
 # frozen_string_literal: true
 
+require 'json'
 require 'rack/body_proxy'
 require_relative 'metrics'
+require_relative 'system_metrics'
 
 class ProcessingGate
-  def initialize(app, limiter, max_inflight, max_queue_wait_ms)
+  def initialize(app, limiter, max_inflight, max_queue_wait_ms, max_memory_percent)
     @app = app
     @limiter = limiter
     @max_inflight = max_inflight
     @max_queue_wait_ms = max_queue_wait_ms
+    @max_memory_percent = max_memory_percent
   end
 
   def call(env)
     acquired = false
     return @app.call(env) unless gate_request?(env)
+
+    memory_percent = SystemMetrics.memory_percent
+    if memory_percent >= @max_memory_percent
+      body = {
+        error: 'Server memory high',
+        memory_percent: memory_percent,
+        max_memory_percent: @max_memory_percent
+      }.to_json
+      return [503, { 'Content-Type' => 'application/json', 'Retry-After' => '1' }, [body]]
+    end
 
     start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     acquired = @limiter.acquire
