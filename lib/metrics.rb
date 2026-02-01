@@ -10,7 +10,8 @@ module Metrics
     gc: [],
     queue: []
   }
-  @queue_rejections = 0
+  @queue_rejections_full = 0
+  @queue_rejections_timeout = 0
   @queue_wait_total_ms = 0
   @queue_wait_count = 0
   @mutex = Mutex.new
@@ -70,13 +71,18 @@ module Metrics
       end
     end
 
-    def record_queue_reject
+    def record_queue_reject(reason = :timeout)
       @mutex.synchronize do
-        @queue_rejections += 1
+        case reason
+        when :queue_full
+          @queue_rejections_full += 1
+        else
+          @queue_rejections_timeout += 1
+        end
       end
     end
 
-    def add_queue_sample(time, inflight, available)
+    def add_queue_sample(time, inflight, available, waiting = 0)
       @mutex.synchronize do
         avg_wait_ms = if @queue_wait_count.positive?
                         (@queue_wait_total_ms / @queue_wait_count.to_f).round(1)
@@ -88,12 +94,15 @@ module Metrics
           time: time,
           inflight: inflight,
           available: available,
-          rejected: @queue_rejections,
+          waiting: waiting,
+          rejected_full: @queue_rejections_full,
+          rejected_timeout: @queue_rejections_timeout,
           avg_wait_ms: avg_wait_ms
         }
         @data[:queue].shift if @data[:queue].size > MAX_ENTRIES
 
-        @queue_rejections = 0
+        @queue_rejections_full = 0
+        @queue_rejections_timeout = 0
         @queue_wait_total_ms = 0
         @queue_wait_count = 0
       end

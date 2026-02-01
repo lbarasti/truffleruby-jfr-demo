@@ -30,6 +30,32 @@ app.rb
 3. **No Mutex** - TruffleRuby 33 Hash is thread-safe
 4. **SSE for real-time updates** - dashboard polls /events every second
 5. **Sinatra classic mode** - simple, single-file app
+6. **Backpressure via bounded queue** - stabilizes memory under load
+
+## Backpressure Configuration
+
+The app uses a bounded queue to apply backpressure on CPU-intensive routes (`/mandelbrot`, `/plasma`, `/process`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_INFLIGHT` | 4 | Max concurrent processing requests |
+| `MAX_QUEUE_DEPTH` | 8 | Max requests waiting in queue |
+| `MAX_QUEUE_WAIT_MS` | 2000 | Max time (ms) a request waits for a slot |
+| `MAX_MEMORY_PERCENT` | 85 | Reject requests when system memory exceeds this |
+
+**How it works:**
+
+```
+Request → Queue full? → Yes → 429 "Queue full"
+              ↓ No
+         Wait for slot (up to 2s)
+              ↓
+         Timeout? → Yes → 429 "Queue timeout"
+              ↓ No
+         Process request
+```
+
+This smooths traffic spikes by queueing requests rather than rejecting immediately, stabilizing memory usage under burst load.
 
 ## Local Development
 

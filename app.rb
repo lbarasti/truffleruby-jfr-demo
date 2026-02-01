@@ -13,10 +13,11 @@ require_relative 'lib/processing_gate'
 MAX_UPLOAD_BYTES = ENV.fetch('MAX_UPLOAD_BYTES', 5 * 1024 * 1024).to_i
 MAX_IMAGE_PIXELS = ENV.fetch('MAX_IMAGE_PIXELS', 2_000_000).to_i
 MAX_INFLIGHT = ENV.fetch('MAX_INFLIGHT', 4).to_i
-MAX_QUEUE_WAIT_MS = ENV.fetch('MAX_QUEUE_WAIT_MS', 250).to_i
+MAX_QUEUE_WAIT_MS = ENV.fetch('MAX_QUEUE_WAIT_MS', 2000).to_i
+MAX_QUEUE_DEPTH = ENV.fetch('MAX_QUEUE_DEPTH', 4).to_i
 MAX_MEMORY_PERCENT = ENV.fetch('MAX_MEMORY_PERCENT', 85).to_f
 
-PROCESSING_LIMITER = QueueLimiter.new(MAX_INFLIGHT, MAX_QUEUE_WAIT_MS)
+PROCESSING_LIMITER = QueueLimiter.new(MAX_INFLIGHT, MAX_QUEUE_WAIT_MS, MAX_QUEUE_DEPTH)
 
 class RequestSizeLimiter
   def initialize(app, max_bytes)
@@ -64,7 +65,7 @@ configure do
   set :host_authorization, permitted_hosts: []
   # Force Puma to kill connections after 2 seconds on shutdown
   set :server_settings, force_shutdown_after: 2
-  use ProcessingGate, PROCESSING_LIMITER, MAX_INFLIGHT, MAX_QUEUE_WAIT_MS, MAX_MEMORY_PERCENT
+  use ProcessingGate, PROCESSING_LIMITER, MAX_INFLIGHT, MAX_QUEUE_WAIT_MS, MAX_MEMORY_PERCENT, MAX_QUEUE_DEPTH
   use RequestSizeLimiter, MAX_UPLOAD_BYTES
 end
 
@@ -102,7 +103,8 @@ def start_metrics_collector
       Metrics.add_queue_sample(
         timestamp,
         PROCESSING_LIMITER.inflight,
-        PROCESSING_LIMITER.available
+        PROCESSING_LIMITER.available,
+        PROCESSING_LIMITER.waiting
       )
       prev_gc_count = gc_count
 

@@ -302,6 +302,7 @@
         labels: [],
         datasets: [
           { label: 'Inflight', data: [], borderColor: '#e44d26', tension: 0.3, fill: false },
+          { label: 'Waiting', data: [], borderColor: '#ff9800', tension: 0.3, fill: false },
           { label: 'Available', data: [], borderColor: '#4caf50', tension: 0.3, fill: false, borderDash: [6, 4] },
           { label: 'Avg wait (ms)', data: [], borderColor: '#2196f3', tension: 0.3, fill: false, yAxisID: 'y1' }
         ]
@@ -318,11 +319,20 @@
 
     const queueRejectChart = new Chart(document.getElementById('queueRejectChart'), {
       type: 'bar',
-      data: { labels: [], datasets: [{ label: 'Rejected (per sec)', data: [], backgroundColor: '#f44336' }] },
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Queue Full', data: [], backgroundColor: '#f44336' },
+          { label: 'Timeout', data: [], backgroundColor: '#ff9800' }
+        ]
+      },
       options: {
         responsive: true,
         animation: false,
-        scales: { y: { beginAtZero: true } }
+        scales: {
+          x: { stacked: true },
+          y: { beginAtZero: true, stacked: true }
+        }
       }
     });
 
@@ -428,18 +438,22 @@
       if (data.queue?.length > 0) {
         const labels = data.queue.map(d => d.time);
         const inflight = data.queue.map(d => d.inflight);
+        const waiting = data.queue.map(d => d.waiting || 0);
         const available = data.queue.map(d => d.available);
         const avgWait = data.queue.map(d => d.avg_wait_ms);
-        const rejected = data.queue.map(d => d.rejected);
+        const rejectedFull = data.queue.map(d => d.rejected_full || 0);
+        const rejectedTimeout = data.queue.map(d => d.rejected_timeout || 0);
 
         queueChart.data.labels = labels;
         queueChart.data.datasets[0].data = inflight;
-        queueChart.data.datasets[1].data = available;
-        queueChart.data.datasets[2].data = avgWait;
+        queueChart.data.datasets[1].data = waiting;
+        queueChart.data.datasets[2].data = available;
+        queueChart.data.datasets[3].data = avgWait;
         queueChart.update('none');
 
         queueRejectChart.data.labels = labels;
-        queueRejectChart.data.datasets[0].data = rejected;
+        queueRejectChart.data.datasets[0].data = rejectedFull;
+        queueRejectChart.data.datasets[1].data = rejectedTimeout;
         queueRejectChart.update('none');
       }
 
