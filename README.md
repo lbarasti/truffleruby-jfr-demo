@@ -60,11 +60,62 @@ This smooths traffic spikes by queueing requests rather than rejecting immediate
 
 ## Local Development
 
+### Prerequisites (RVM)
+
+This project expects Rubies to be available under your RVM installation.
+
+1. Install RVM (if you do not already have it).
+2. Install Ruby 4 for the `ruby4` tasks:
+
+```bash
+rvm install ruby-4.0.1
+```
+
+3. Install a **TruffleRuby dev build** and place it in your RVM rubies folder as `truffleruby-34.0.0-dev`.
+   - Download/extract a dev build from TruffleRuby releases.
+   - Move the extracted directory into `~/.rvm/rubies/` with this exact name:
+
+```bash
+mv /path/to/extracted-truffleruby "$HOME/.rvm/rubies/truffleruby-34.0.0-dev"
+```
+
+Why the dev build is needed:
+- This app uses JFR event streaming from Ruby (`jdk.jfr.consumer.RecordingStream`) in native mode.
+- That support comes from [truffleruby/truffleruby#4111](https://github.com/truffleruby/truffleruby/pull/4111), which was merged but is not in an official release yet.
+
+You can still run the app with an older TruffleRuby (for example `truffleruby-33.0.0` if you have it in RVM), but JFR streaming events will not be available.
+
+The `Rakefile` uses `$HOME/.rvm` (or `rvm_path`) and does not depend on a specific username or absolute home path.
+
+### Install dependencies
+
 ```bash
 bundle install
-rake server    # or just: rake
-# Visit http://localhost:8080
 ```
+
+### Run the app
+
+```bash
+rake               # same as: rake server (Ruby 3.x default)
+# Visit http://localhost:8080/dashboard
+```
+
+### Run with TruffleRuby dev
+
+```bash
+rake truffleruby
+# Visit http://localhost:8081/dashboard
+```
+
+### Run with older TruffleRuby (no JFR streaming)
+
+```bash
+rvm use truffleruby-33.0.0
+rake server
+# Visit http://localhost:8080/dashboard
+```
+
+In this mode the app still runs, but native JFR event streaming is not enabled.
 
 ### With JFR enabled
 
@@ -103,4 +154,5 @@ fly deploy
 
 - [GraalVM Native Image JFR Support](https://github.com/oracle/graal/issues/5410)
 - [TruffleRuby Releases](https://github.com/oracle/truffleruby/releases)
+- [Enable JFR event streaming from Ruby (PR #4111)](https://github.com/truffleruby/truffleruby/pull/4111)
 - [Sinatra Host Authorization Issue](https://github.com/sinatra/sinatra/issues/2065)
